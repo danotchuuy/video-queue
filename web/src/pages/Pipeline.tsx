@@ -6,10 +6,74 @@ import { ErrorBox, Loading } from '../components/Status'
 import VideoDetails from '../components/VideoDetails'
 import { useServer } from '../session'
 import { useFetch } from '../useFetch'
-import { STATUS_LABELS, errMsg } from '../util'
+import { SORT_OPTIONS, isSortKey, sortVideos, type SortKey } from '../pipelineSort'
+import { errMsg } from '../util'
 
-const COLUMNS: VideoStatus[] = ['reacted', 'editing', 'patreon', 'youtube', 'skipped']
+type Column = 'reacted' | 'editing' | 'posted' | 'skipped'
+const COLUMNS: Column[] = ['reacted', 'editing', 'posted', 'skipped']
+const FETCH_STATUSES: VideoStatus[] = ['reacted', 'editing', 'patreon', 'youtube', 'skipped']
+const LABELS: Record<Column, string> = {
+  reacted: 'Reacted',
+  editing: 'Editing',
+  posted: 'Posted',
+  skipped: 'Archived',
+}
 const DRAG_TYPE = 'application/x-video-id'
+const MISSING_KEY = 'pipeline.missing'
+
+type Platform = 'patreon' | 'youtube'
+const PLATFORMS: {
+  id: Platform
+  label: string
+  field: 'patreon_url' | 'youtube_url'
+}[] = [
+  { id: 'patreon', label: 'Patreon', field: 'patreon_url' },
+  { id: 'youtube', label: 'YouTube', field: 'youtube_url' },
+]
+
+function columnOf(status: VideoStatus): Column | null {
+  if (status === 'patreon' || status === 'youtube') return 'posted'
+  return status === 'reacted' || status === 'editing' || status === 'skipped' ? status : null
+}
+
+// Remembered per browser; storage may be unavailable (private mode etc.).
+function loadMissing(): Platform[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(MISSING_KEY) ?? '[]')
+    if (!Array.isArray(v)) return []
+    return PLATFORMS.map((p) => p.id).filter((id) => v.includes(id))
+  } catch {
+    return []
+  }
+}
+
+function saveMissing(m: Platform[]) {
+  try {
+    localStorage.setItem(MISSING_KEY, JSON.stringify(m))
+  } catch {
+    // not persisted; the filter still works for this visit
+  }
+}
+
+const SORT_KEY_PREFIX = 'pipeline.sort.'
+
+// Remembered per browser and column; unknown values are ignored.
+function loadSort(col: Column): SortKey {
+  try {
+    const v = localStorage.getItem(SORT_KEY_PREFIX + col)
+    return isSortKey(v) ? v : 'queue'
+  } catch {
+    return 'queue'
+  }
+}
+
+function saveSort(col: Column, key: SortKey) {
+  try {
+    localStorage.setItem(SORT_KEY_PREFIX + col, key)
+  } catch {
+    // not persisted; the sort still works for this visit
+  }
+}
 
 /** Optimistic move; only applies while the fetched list is still the one it was made against. */
 interface Move {
@@ -18,13 +82,16 @@ interface Move {
 }
 
 interface ColumnProps {
-  status: VideoStatus
+  status: Column
   count: number
   onDropVideo: (id: number) => void
+  sort: SortKey
+  onSort: (key: SortKey) => void
+  extra?: ReactNode
   children: ReactNode
 }
 
-function Column({ status, count, onDropVideo, children }: ColumnProps) {
+function BoardColumn({ status, count, onDropVideo, sort, onSort, extra, children }: ColumnProps) {
   // dragenter/dragleave also fire for child elements, so count them instead of toggling on each event
   const [depth, setDepth] = useState(0)
   const isOurs = (e: DragEvent) => e.dataTransfer.types.includes(DRAG_TYPE)
@@ -43,7 +110,7 @@ function Column({ status, count, onDropVideo, children }: ColumnProps) {
   return (
     <section
       className={depth > 0 ? 'kanban-col drag-over' : 'kanban-col'}
-      aria-label={STATUS_LABELS[status]}
+      aria-label={LABELS[status]}
       onDragEnter={(e) => {
         if (!isOurs(e)) return
         e.preventDefault()
@@ -66,9 +133,24 @@ function Column({ status, count, onDropVideo, children }: ColumnProps) {
         if (Number.isInteger(id)) onDropVideo(id)
       }}
     >
-      <h2 className="kanban-head">
-        {STATUS_LABELS[status]} <span className="muted">({count})</span>
-      </h2>
+      <div className="pipeline-head">
+        <h2 className="kanban-head">
+          {LABELS[status]} <span className="muted">({count})</span>
+        </h2>
+        <select
+          className="pipeline-sort"
+          aria-label={`Sort ${LABELS[status]}`}
+          value={sort}
+          onChange={(e) => isSortKey(e.target.value) && onSort(e.target.value)}
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {extra}
+      </div>
       <div className="kanban-list">
         {children}
         {count === 0 && <p className="kanban-empty muted small">Drop here</p>}
@@ -99,7 +181,7 @@ function saveShowSkipped(show: boolean) {
 export default function Pipeline() {
   const { id: sid } = useServer()
   const [params, setParams] = useSearchParams()
-  const videos = useFetch(() => listVideos(sid, { status: COLUMNS }), String(sid))
+  const videos = useFetch(() => listVideos(sid, { status: FETCH_STATUSES }), String(sid))
   const series = useFetch(() => listSeries(sid), String(sid))
   const [moves, setMoves] = useState<Record<number, Move>>({})
   const [dragId, setDragId] = useState<number | null>(null)
@@ -117,6 +199,13 @@ export default function Pipeline() {
   const [moveError, setMoveError] = useState<string | null>(null)
   const [panelTop, setPanelTop] = useState(0)
   const [showSkipped, setShowSkipped] = useState(loadShowSkipped)
+  const [missing, setMissing] = useState<Platform[]>(loadMissing)
+  const [sorts, setSorts] = useState<Record<Column, SortKey>>(() => ({
+    reacted: loadSort('reacted'),
+    editing: loadSort('editing'),
+    posted: loadSort('posted'),
+    skipped: loadSort('skipped'),
+  }))
 
   const selectedId = Number(params.get('video')) || null
   const open = params.has('video')
@@ -169,9 +258,20 @@ export default function Pipeline() {
   })
   const selected = selectedId != null ? all.find((v) => v.id === selectedId) : undefined
 
-  async function moveVideo(id: number, to: VideoStatus) {
+  function toggleMissing(id: Platform) {
+    const next = PLATFORMS.map((p) => p.id).filter((x) => (x === id ? !missing.includes(x) : missing.includes(x)))
+    setMissing(next)
+    saveMissing(next)
+  }
+
+  async function moveVideo(id: number, col: Column) {
     const v = all.find((x) => x.id === id)
-    if (!v || v.status === to) return
+    if (!v) return
+    // Already in the target column (e.g. a 'youtube' video dropped on Posted): nothing to change.
+    if (columnOf(v.status) === col) return
+    // Posted holds two statuses; Patreon comes first.
+    const to: VideoStatus = col === 'posted' ? 'patreon' : col
+    if (v.status === to) return
     setMoveError(null)
     setMoves((m) => ({ ...m, [id]: { to, base: videos.data } }))
     const clear = () =>
@@ -188,6 +288,23 @@ export default function Pipeline() {
     }
   }
 
+  const filter = (
+    <div className="pipeline-filter" role="group" aria-label="Posted filter">
+      <span className="muted">Not on:</span>
+      {PLATFORMS.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className="pipeline-chip"
+          aria-pressed={missing.includes(p.id)}
+          onClick={() => toggleMissing(p.id)}
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
     <div className={selected ? 'pipeline has-panel' : 'pipeline'}>
       <div className="page-head">
@@ -201,20 +318,39 @@ export default function Pipeline() {
               saveShowSkipped(e.target.checked)
             }}
           />
-          Show skipped
+          Show archived
         </label>
       </div>
       {videos.error && <ErrorBox message={videos.error} onRetry={videos.reload} />}
       {moveError && <ErrorBox message={moveError} />}
       <div className="kanban">
         {COLUMNS.filter((status) => showSkipped || status !== 'skipped').map((status) => {
-          const items = all.filter((v) => v.status === status)
+          const filtered = all.filter(
+            (v) =>
+              columnOf(v.status) === status &&
+              (status !== 'posted' ||
+                missing.length === 0 ||
+                PLATFORMS.some((p) => missing.includes(p.id) && v[p.field] === '')),
+          )
+          const items = sortVideos(filtered, sorts[status], seriesById)
           return (
-            <Column key={status} status={status} count={items.length} onDropVideo={(id) => moveVideo(id, status)}>
+            <BoardColumn
+              key={status}
+              status={status}
+              count={items.length}
+              sort={sorts[status]}
+              onSort={(key) => {
+                setSorts((m) => ({ ...m, [status]: key }))
+                saveSort(status, key)
+              }}
+              onDropVideo={(id) => moveVideo(id, status)}
+              extra={status === 'posted' ? filter : undefined}
+            >
               {items.map((v) => (
                 <KanbanCard
                   key={v.id}
                   video={v}
+                  column={status}
                   series={v.series_id != null ? seriesById.get(v.series_id) : undefined}
                   selected={v.id === selectedId}
                   dragging={v.id === dragId}
@@ -228,7 +364,7 @@ export default function Pipeline() {
                   onDragEnd={() => setDragId(null)}
                 />
               ))}
-            </Column>
+            </BoardColumn>
           )
         })}
       </div>

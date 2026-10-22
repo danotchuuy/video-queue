@@ -47,7 +47,7 @@ type Store interface {
 	GetSeries(ctx context.Context, serverID, id int64) (store.Series, error)
 	CreateSeries(ctx context.Context, in store.Series) (store.Series, error)
 	UpdateSeries(ctx context.Context, serverID, id int64, p store.SeriesPatch) (store.Series, error)
-	DeleteSeries(ctx context.Context, serverID, id int64) error
+	DeleteSeries(ctx context.Context, serverID, id int64, deleteQueued bool) error
 
 	ListVideos(ctx context.Context, f store.VideoFilter) ([]store.Video, error)
 	GetVideo(ctx context.Context, serverID, id int64) (store.Video, error)
@@ -893,7 +893,17 @@ func (a *API) deleteSeries(w http.ResponseWriter, r *http.Request, srv store.Ser
 	if !ok {
 		return
 	}
-	if err := a.st.DeleteSeries(r.Context(), srv.ID, id); err != nil {
+	// ?delete_queued=true also deletes the series' videos still in the queue.
+	deleteQueued := false
+	if v := r.URL.Query().Get("delete_queued"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid delete_queued")
+			return
+		}
+		deleteQueued = b
+	}
+	if err := a.st.DeleteSeries(r.Context(), srv.ID, id, deleteQueued); err != nil {
 		a.storeError(w, r, err)
 		return
 	}

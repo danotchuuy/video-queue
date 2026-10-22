@@ -960,3 +960,19 @@ type Perms struct {
   to its first allowed section.
 - **Server settings:** two more role checkbox lists, "Clip editor roles" and "Video editor roles", with help text,
   reusing the mod role list component and saved with the other settings.
+
+## Deleting a series
+
+`DELETE /api/servers/{sid}/series/{id}?delete_queued=true` also deletes the series' videos that are still
+`queued` (one transaction, scoped by server). Every other video of the series (reacted, editing, posted,
+skipped) is always kept, with `series_id` cleared. Without the flag, behaviour is unchanged. The Series page
+checks for queued videos first and, if there are any, asks: delete them too, keep them, or cancel.
+
+## Pipeline board (current)
+
+Columns: Reacted, Editing, Posted (statuses `patreon` + `youtube`; dropping into it sets `patreon`), Archived
+(status `skipped`, shown as "Archived" in the UI only, toggled by "Show archived"). Posted has "Not on: Patreon ·
+YouTube" chips (client-side, on empty `patreon_url`/`youtube_url`). Each column has a sort select
+(`web/src/pipelineSort.ts`): queue order, title, series & episode (natural order), reacted newest/oldest, posted
+newest/oldest (first of patreon_at/youtube_at), last updated. Missing dates sort last, and ties fall back to queue
+order. Per-column choices are kept in localStorage.

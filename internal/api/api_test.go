@@ -25,12 +25,13 @@ var testNow = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 // fakeStore is an in-memory Store. Content is scoped by ServerID like the real one.
 type fakeStore struct {
-	servers     map[int64]store.Server
-	series      map[int64]store.Series
-	videos      map[int64]store.Video
-	suggestions map[int64]store.Suggestion
-	clips       map[int64]store.Clip
-	nextID      int64
+	lastDeleteQueued bool
+	servers          map[int64]store.Server
+	series           map[int64]store.Series
+	videos           map[int64]store.Video
+	suggestions      map[int64]store.Suggestion
+	clips            map[int64]store.Clip
+	nextID           int64
 
 	lastClipFilter       store.ClipFilter
 	lastClipPatch        store.ClipPatch
@@ -185,10 +186,11 @@ func (f *fakeStore) UpdateSeries(ctx context.Context, sid, id int64, p store.Ser
 	f.series[id] = s
 	return s, nil
 }
-func (f *fakeStore) DeleteSeries(ctx context.Context, sid, id int64) error {
+func (f *fakeStore) DeleteSeries(ctx context.Context, sid, id int64, deleteQueued bool) error {
 	if _, err := f.GetSeries(ctx, sid, id); err != nil {
 		return err
 	}
+	f.lastDeleteQueued = deleteQueued
 	delete(f.series, id)
 	return nil
 }
@@ -2364,4 +2366,26 @@ func TestPatchServerEditorRoles(t *testing.T) {
 	}
 	wantStatus(t, do(e.h, "PATCH", base, `{"clip_editor_role_ids":["x"]}`), 400)
 	wantStatus(t, do(e.h, "PATCH", base, `{"video_editor_role_ids":["x"]}`), 400)
+}
+
+func TestDeleteSeriesQueuedOption(t *testing.T) {
+	fs := setup(t, nil)
+	h := fs.h
+	for _, tc := range []struct {
+		query string
+		code  int
+		want  bool
+	}{
+		{"", 204, false},
+		{"?delete_queued=true", 204, true},
+		{"?delete_queued=false", 204, false},
+		{"?delete_queued=maybe", 400, false},
+	} {
+		s, _ := fs.CreateSeries(context.Background(), store.Series{ServerID: sid1, Title: "s"})
+		fs.lastDeleteQueued = !tc.want
+		wantStatus(t, do(h, "DELETE", base+"/series/"+itoa(s.ID)+tc.query, ""), tc.code)
+		if tc.code == 204 && fs.lastDeleteQueued != tc.want {
+			t.Errorf("%q: deleteQueued = %v, want %v", tc.query, fs.lastDeleteQueued, tc.want)
+		}
+	}
 }

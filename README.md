@@ -5,8 +5,8 @@ Each streamer's Discord server is registered as a **server** in the app, and a s
 switcher keeps everything in one place:
 
 - **Queue** of videos to react to, split by venue: Discord **watch party** or **stream**.
-- **Pipeline** for each reaction: reacted (recorded) → editing → posted to Patreon → posted to YouTube
-  (or skipped).
+- **Pipeline** board for each reaction: Reacted (recorded) → Editing → Posted (Patreon, then YouTube),
+  or Archived. Each column can be sorted, and Posted can be filtered to videos not yet on Patreon or YouTube.
 - **Series**: anime abridged series and other shows, with their episodes.
 - **Suggestions**: messages from each server's suggestions channel are pulled in automatically
   so mods can sort, approve (adds to the queue) or discard them.

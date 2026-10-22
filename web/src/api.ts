@@ -296,7 +296,9 @@ export const listSeries = (sid: number) => get<Series[]>(`${base(sid)}/series`)
 export const createSeries = (sid: number, input: SeriesInput) => post<Series>(`${base(sid)}/series`, input)
 export const updateSeries = (sid: number, id: number, p: SeriesPatch) =>
   patch<Series>(`${base(sid)}/series/${id}`, p)
-export const deleteSeries = (sid: number, id: number) => del(`${base(sid)}/series/${id}`)
+/** Deletes a series; with deleteQueued, its videos still in the queue are deleted too. */
+export const deleteSeries = (sid: number, id: number, deleteQueued = false) =>
+  del(`${base(sid)}/series/${id}${deleteQueued ? '?delete_queued=true' : ''}`)
 
 // Videos
 export function listVideos(sid: number, f: VideoFilter = {}) {

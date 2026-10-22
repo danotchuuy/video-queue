@@ -4,6 +4,7 @@ import Thumbnail from './Thumbnail'
 
 interface Props {
   video: Video
+  column?: string
   series?: Series
   selected: boolean
   dragging: boolean
@@ -13,7 +14,16 @@ interface Props {
 }
 
 /** Compact draggable card for the pipeline board; click, Enter or Space opens the details. */
-export default function KanbanCard({ video, series, selected, dragging, onOpen, onDragStart, onDragEnd }: Props) {
+export default function KanbanCard({
+  video,
+  column,
+  series,
+  selected,
+  dragging,
+  onOpen,
+  onDragStart,
+  onDragEnd,
+}: Props) {
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.target !== e.currentTarget) return
     if (e.key === 'Enter' || e.key === ' ') {
@@ -41,6 +51,18 @@ export default function KanbanCard({ video, series, selected, dragging, onOpen, 
       <div className="kanban-title">{video.title}</div>
       {sub && <div className="muted small kanban-sub">{sub}</div>}
       {video.editor_name && <div className="muted small kanban-sub">✎ {video.editor_name}</div>}
+      {column === 'posted' && (
+        <div className="pipeline-platforms">
+          {[
+            { short: 'P', label: 'Patreon', on: video.patreon_url !== '' },
+            { short: 'YT', label: 'YouTube', on: video.youtube_url !== '' },
+          ].map((p) => (
+            <span key={p.label} className={p.on ? 'pipeline-platform on' : 'pipeline-platform'} title={p.label}>
+              {p.short}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

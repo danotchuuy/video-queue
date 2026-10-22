@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { createSeries, deleteSeries, listSeries, updateSeries, type Series } from '../api'
+import { createSeries, deleteSeries, listSeries, listVideos, updateSeries, type Series } from '../api'
 import PlaylistImportForm from '../components/PlaylistImportForm'
 import SeriesForm from '../components/SeriesForm'
 import { ErrorBox, Loading } from '../components/Status'
@@ -18,18 +18,43 @@ export default function SeriesList() {
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  // A series waiting for the "also delete its queued videos?" choice.
+  const [confirming, setConfirming] = useState<{ id: number; queued: number } | null>(null)
+  const [busy, setBusy] = useState(false)
 
   if (loading && !data) return <Loading />
   if (error && !data) return <ErrorBox message={error} onRetry={reload} />
 
-  async function remove(s: Series) {
-    if (!window.confirm(`Delete series "${s.title}"?`)) return
+  // Asks first: if videos of the series are still queued, offer to delete them too.
+  async function startRemove(s: Series) {
     setActionError(null)
+    setBusy(true)
     try {
-      await deleteSeries(sid, s.id)
+      const queued = await listVideos(sid, { status: ['queued'], series_id: s.id })
+      if (queued.length > 0) {
+        setConfirming({ id: s.id, queued: queued.length })
+      } else if (window.confirm(`Delete series "${s.title}"?`)) {
+        await deleteSeries(sid, s.id)
+        reload()
+      }
+    } catch (e) {
+      setActionError(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove(s: Series, deleteQueued: boolean) {
+    setActionError(null)
+    setBusy(true)
+    try {
+      await deleteSeries(sid, s.id, deleteQueued)
+      setConfirming(null)
       reload()
     } catch (e) {
       setActionError(errMsg(e))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -117,10 +142,30 @@ export default function SeriesList() {
                 <button type="button" onClick={() => setEditingId(s.id)}>
                   Edit
                 </button>
-                <button type="button" className="danger" onClick={() => remove(s)}>
+                <button type="button" className="danger" disabled={busy} onClick={() => startRemove(s)}>
                   Delete
                 </button>
               </div>
+            </div>
+          )}
+          {confirming?.id === s.id && (
+            <div className="confirm-delete" role="alertdialog" aria-label={`Delete ${s.title}`}>
+              <p>
+                Delete series <strong>{s.title}</strong>? {confirming.queued}{' '}
+                {confirming.queued === 1 ? 'video is' : 'videos are'} still in the queue.
+              </p>
+              <div className="btn-group">
+                <button type="button" className="danger" disabled={busy} onClick={() => remove(s, true)}>
+                  Delete series and {confirming.queued} queued {confirming.queued === 1 ? 'video' : 'videos'}
+                </button>
+                <button type="button" disabled={busy} onClick={() => remove(s, false)}>
+                  Delete series, keep videos in queue
+                </button>
+                <button type="button" disabled={busy} onClick={() => setConfirming(null)}>
+                  Cancel
+                </button>
+              </div>
+              <p className="muted small">Videos that were already reacted to are always kept.</p>
             </div>
           )}
         </article>

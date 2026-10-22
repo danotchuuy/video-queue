@@ -306,7 +306,7 @@ func TestDeleteSeriesNullsVideos(t *testing.T) {
 	if v.SeriesID == nil || *v.SeriesID != sr.ID {
 		t.Fatalf("series_id = %v", v.SeriesID)
 	}
-	if err := s.DeleteSeries(ctx, sid, sr.ID); err != nil {
+	if err := s.DeleteSeries(ctx, sid, sr.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetVideo(ctx, sid, v.ID)
@@ -316,7 +316,7 @@ func TestDeleteSeriesNullsVideos(t *testing.T) {
 	if got.SeriesID != nil {
 		t.Errorf("series_id = %v, want nil", *got.SeriesID)
 	}
-	if err := s.DeleteSeries(ctx, sid, sr.ID); !errors.Is(err, ErrNotFound) {
+	if err := s.DeleteSeries(ctx, sid, sr.ID, false); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second delete err = %v", err)
 	}
 }
@@ -1170,7 +1170,7 @@ func TestCrossServerIsolation(t *testing.T) {
 	if _, err := s.UpdateSeries(ctx, b, sr.ID, SeriesPatch{}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("empty UpdateSeries err = %v", err)
 	}
-	if err := s.DeleteSeries(ctx, b, sr.ID); !errors.Is(err, ErrNotFound) {
+	if err := s.DeleteSeries(ctx, b, sr.ID, true); !errors.Is(err, ErrNotFound) {
 		t.Errorf("DeleteSeries err = %v", err)
 	}
 
@@ -3024,5 +3024,49 @@ func TestMigration011OnExistingDB(t *testing.T) {
 	}
 	if n := count(t, s, `SELECT COUNT(*) FROM schema_migrations`); n != 11 {
 		t.Errorf("migrations = %d, want 11", n)
+	}
+}
+
+func TestDeleteSeriesWithQueuedVideos(t *testing.T) {
+	s, sid := newStoreSrv(t)
+	other := mustServer(t, s, "999000000000000001")
+	sr, _ := s.CreateSeries(ctx, Series{ServerID: sid, Title: "S"})
+	keep, _ := s.CreateSeries(ctx, Series{ServerID: sid, Title: "Other"})
+	q1, _ := s.CreateVideo(ctx, Video{ServerID: sid, SeriesID: &sr.ID, Title: "q1", Venue: VenueStream})
+	q2, _ := s.CreateVideo(ctx, Video{ServerID: sid, SeriesID: &sr.ID, Title: "q2", Venue: VenueStream})
+	done, _ := s.CreateVideo(ctx, Video{ServerID: sid, SeriesID: &sr.ID, Title: "done", Venue: VenueStream, Status: StatusReacted})
+	otherSeries, _ := s.CreateVideo(ctx, Video{ServerID: sid, SeriesID: &keep.ID, Title: "other", Venue: VenueStream})
+	standalone, _ := s.CreateVideo(ctx, Video{ServerID: sid, Title: "solo", Venue: VenueStream})
+
+	// A series ID from another server deletes nothing, not even its videos.
+	if err := s.DeleteSeries(ctx, other.ID, sr.ID, true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("cross-server delete err = %v", err)
+	}
+	if _, err := s.GetVideo(ctx, sid, q1.ID); err != nil {
+		t.Fatalf("cross-server delete removed a video: %v", err)
+	}
+
+	if err := s.DeleteSeries(ctx, sid, sr.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{q1.ID, q2.ID} {
+		if _, err := s.GetVideo(ctx, sid, id); !errors.Is(err, ErrNotFound) {
+			t.Errorf("queued video %d still exists (err %v)", id, err)
+		}
+	}
+	got, err := s.GetVideo(ctx, sid, done.ID)
+	if err != nil || got.SeriesID != nil {
+		t.Errorf("reacted video should stay without a series: %+v, %v", got, err)
+	}
+	for _, id := range []int64{otherSeries.ID, standalone.ID} {
+		if _, err := s.GetVideo(ctx, sid, id); err != nil {
+			t.Errorf("unrelated video %d deleted: %v", id, err)
+		}
+	}
+
+	// A missing series rolls back: its queued videos aren't deleted.
+	gone := int64(424242)
+	if err := s.DeleteSeries(ctx, sid, gone, true); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing series err = %v", err)
 	}
 }

@@ -11,7 +11,7 @@ export const STATUS_LABELS: Record<VideoStatus, string> = {
   editing: 'Editing',
   patreon: 'Patreon',
   youtube: 'YouTube',
-  skipped: 'Skipped',
+  skipped: 'Archived',
 }
 
 export const STATUSES = Object.keys(STATUS_LABELS) as VideoStatus[]

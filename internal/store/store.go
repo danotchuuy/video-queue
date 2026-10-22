@@ -770,8 +770,20 @@ func (s *Store) UpdateSeries(ctx context.Context, serverID, id int64, pt SeriesP
 }
 
 // DeleteSeries deletes the series; its videos remain with series_id cleared.
-func (s *Store) DeleteSeries(ctx context.Context, serverID, id int64) error {
-	return deleteScoped(ctx, s.db, "series", "id = ? AND server_id = ?", id, serverID)
+// DeleteSeries deletes the series. With deleteQueued, its videos still in the
+// queue are deleted too (in the same transaction); every other video of the
+// series (reacted, edited, posted, skipped) is kept with series_id cleared.
+func (s *Store) DeleteSeries(ctx context.Context, serverID, id int64, deleteQueued bool) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		if deleteQueued {
+			if _, err := tx.ExecContext(ctx,
+				`DELETE FROM videos WHERE server_id = ? AND series_id = ? AND status = ?`,
+				serverID, id, StatusQueued); err != nil {
+				return err
+			}
+		}
+		return deleteScoped(ctx, tx, "series", "id = ? AND server_id = ?", id, serverID)
+	})
 }
 
 func deleteScoped(ctx context.Context, q querier, table, where string, args ...any) error {

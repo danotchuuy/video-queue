@@ -207,3 +207,18 @@ ol.queue > li.in-series { margin-left: 1.25rem; border-left: 3px solid var(--acc
   .group-row .thumb-sm { width: 3.5rem; }
   .group-row { gap: 0.4rem; }
 }
+
+/* Inline "also delete the queued videos?" choice when deleting a series. */
+.confirm-delete { margin-top: 0.75rem; padding: 0.75rem; border: 1px solid var(--danger, var(--border)); border-radius: 8px; background: var(--bg); }
+.confirm-delete p { margin: 0 0 0.5rem; }
+.confirm-delete p.small { margin: 0.5rem 0 0; }
+
+.pipeline-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.4rem; margin: 0.1rem 0.25rem 0.5rem; }
+.pipeline-head .kanban-head { margin: 0; }
+.pipeline-head .pipeline-sort { width: auto; max-width: 100%; font-size: 0.75rem; padding: 0.1rem 0.3rem; margin-left: auto; }
+.pipeline-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; font-size: 0.8rem; }
+.pipeline-chip { font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; }
+.pipeline-chip[aria-pressed='true'] { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.pipeline-platforms { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+.pipeline-platform { font-size: 0.7rem; padding: 0 0.4rem; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+.pipeline-platform.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
